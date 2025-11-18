@@ -40,6 +40,7 @@ exports.createEvent = async (req, res) => {
             message: "Event created successfully",
             event: {
                 id: event._id,
+                eventId: event.eventId,
                 eventName: event.eventName,
                 venue: event.venue,
                 date: event.date,
@@ -66,6 +67,7 @@ exports.getAllEvents = async (req, res) => {
             message: "Events retrieved successfully",
             events: events.map(event => ({
                 id: event._id,
+                eventId: event.eventId,
                 eventName: event.eventName,
                 venue: event.venue,
                 date: event.date,
@@ -99,6 +101,7 @@ exports.getEventById = async (req, res) => {
             message: "Event retrieved successfully",
             event: {
                 id: event._id,
+                eventId: event.eventId,
                 eventName: event.eventName,
                 venue: event.venue,
                 date: event.date,
@@ -169,6 +172,7 @@ exports.updateEvent = async (req, res) => {
             message: "Event updated successfully",
             event: {
                 id: event._id,
+                eventId: event.eventId,
                 eventName: event.eventName,
                 venue: event.venue,
                 date: event.date,

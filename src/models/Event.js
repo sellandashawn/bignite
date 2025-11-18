@@ -7,17 +7,26 @@ const eventSchema = new mongoose.Schema({
     category: { type: String, required: true },
     image: { type: String },
     description: { type: String },
+
     ticketStatus: {
         maximumOccupancy: { type: Number, default: 0 },
         totalNumberOfPlayers: { type: Number, default: 0 },
         unscannedTickets: { type: Number, default: 0 },
         successfulPayment: { type: Number, default: 0 }
     },
+
     status: {
         type: String,
-        enum: ["cancelled", "completed", "upcoming", "ongoing"],
+        enum: ["cancelled", "completed", "upcoming", "ongoing", "postponed"],
         default: "upcoming"
     },
+
+    raceCategories: [{ type: String }],
+
+    availableTshirtSizes: [{
+        type: String,
+        enum: ["XS", "S", "M", "L", "XL", "XXL"]
+    }],
 
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }

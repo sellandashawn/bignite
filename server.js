@@ -2,7 +2,9 @@ const express = require("express");
 const cors = require("cors");
 const connectDB = require("./src/config/db");
 const authRoutes = require("./src/routes/AuthRoutes");
-const eventRoutes = require("./src/routes/EventRoutes")
+const eventRoutes = require("./src/routes/EventRoutes");
+const participantRoutes = require("./src/routes/ParticipantRoutes");
+const PaymentRoutes = require("./src/routes/PaymentsRoutes");
 
 const app = express();
 app.use(express.json());
@@ -18,7 +20,9 @@ app.get("/", (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
-app.use('/api/events', eventRoutes)
+app.use('/api/events', eventRoutes);
+app.use('/api/tickets', participantRoutes);
+app.use('/api/payment', PaymentRoutes)
 
 
 // Start the server
