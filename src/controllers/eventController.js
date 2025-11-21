@@ -1,4 +1,6 @@
 const Event = require("../models/Event");
+const cloudinary = require('../config/cloudinary');
+const stream = require('stream');
 
 exports.createEvent = async (req, res) => {
     try {
@@ -10,26 +12,75 @@ exports.createEvent = async (req, res) => {
             eventName,
             venue,
             date,
+            time,
             category,
-            image,
             description,
+            perTicketPrice,
+            agenda = [],
             maximumOccupancy = 0,
             totalNumberOfPlayers = 0,
-            status = "upcoming"
+            unscannedTickets = 0,
+            successfulPayment = 0,
+            status = "upcoming",
+            raceCategories = [],
+            availableTshirtSizes = []
         } = req.body;
+
+        if (!eventName || !venue || !date || !time || !category || perTicketPrice === undefined) {
+            return res.status(400).json({
+                message: "Missing required fields: eventName, venue, date, time, category, and perTicketPrice are required."
+            });
+        }
+
+        let imageUrl = "";
+
+        if (req.file) {
+            try {
+                const bufferStream = new stream.PassThrough();
+                bufferStream.end(req.file.buffer);
+
+                const uploadResponse = await new Promise((resolve, reject) => {
+                    const uploadStream = cloudinary.uploader.upload_stream(
+                        {
+                            folder: 'events_images',
+                            resource_type: "image"
+                        },
+                        (error, result) => {
+                            if (error) reject(error);
+                            else resolve(result);
+                        }
+                    );
+                    bufferStream.pipe(uploadStream);
+                });
+
+                imageUrl = uploadResponse.secure_url;
+            } catch (uploadError) {
+                console.error("Error uploading image to Cloudinary:", uploadError);
+                return res.status(500).json({ message: "Error uploading image", error: uploadError.message });
+            }
+        }
 
         const event = new Event({
             eventName,
             venue,
             date,
+            time,
             category,
-            image: image || "",
+            image: imageUrl,
             description: description || "",
+            perTicketPrice,
+            agenda: Array.isArray(agenda) ? agenda : JSON.parse(agenda || '[]'),
             ticketStatus: {
-                maximumOccupancy,
-                totalNumberOfPlayers
+                maximumOccupancy: parseInt(maximumOccupancy) || 0,
+                totalNumberOfPlayers: parseInt(totalNumberOfPlayers) || 0,
+                unscannedTickets: parseInt(unscannedTickets) || 0,
+                successfulPayment: parseInt(successfulPayment) || 0
             },
-            status
+            status,
+            raceCategories: Array.isArray(raceCategories) ? raceCategories : JSON.parse(raceCategories || '[]'),
+            availableTshirtSizes: Array.isArray(availableTshirtSizes) ? availableTshirtSizes : JSON.parse(availableTshirtSizes || '[]'),
+            createdAt: new Date(),
+            updatedAt: new Date()
         });
 
         await event.save();
@@ -40,16 +91,21 @@ exports.createEvent = async (req, res) => {
             message: "Event created successfully",
             event: {
                 id: event._id,
-                eventId: event.eventId,
                 eventName: event.eventName,
                 venue: event.venue,
                 date: event.date,
+                time: event.time,
                 category: event.category,
                 image: event.image,
                 description: event.description,
+                perTicketPrice: event.perTicketPrice,
+                agenda: event.agenda,
                 ticketStatus: event.ticketStatus,
                 status: event.status,
-                createdAt: event.createdAt
+                raceCategories: event.raceCategories,
+                availableTshirtSizes: event.availableTshirtSizes,
+                createdAt: event.createdAt,
+                updatedAt: event.updatedAt
             }
         });
 
@@ -67,15 +123,19 @@ exports.getAllEvents = async (req, res) => {
             message: "Events retrieved successfully",
             events: events.map(event => ({
                 id: event._id,
-                eventId: event.eventId,
                 eventName: event.eventName,
                 venue: event.venue,
                 date: event.date,
+                time: event.time,
                 category: event.category,
                 image: event.image,
                 description: event.description,
+                perTicketPrice: event.perTicketPrice,
+                agenda: event.agenda,
                 ticketStatus: event.ticketStatus,
                 status: event.status,
+                raceCategories: event.raceCategories,
+                availableTshirtSizes: event.availableTshirtSizes,
                 createdAt: event.createdAt,
                 updatedAt: event.updatedAt
             }))
@@ -101,15 +161,19 @@ exports.getEventById = async (req, res) => {
             message: "Event retrieved successfully",
             event: {
                 id: event._id,
-                eventId: event.eventId,
                 eventName: event.eventName,
                 venue: event.venue,
                 date: event.date,
+                time: event.time,
                 category: event.category,
                 image: event.image,
                 description: event.description,
+                perTicketPrice: event.perTicketPrice,
+                agenda: event.agenda,
                 ticketStatus: event.ticketStatus,
                 status: event.status,
+                raceCategories: event.raceCategories,
+                availableTshirtSizes: event.availableTshirtSizes,
                 createdAt: event.createdAt,
                 updatedAt: event.updatedAt
             }
@@ -132,30 +196,87 @@ exports.updateEvent = async (req, res) => {
             eventName,
             venue,
             date,
+            time,
             category,
             image,
             description,
+            perTicketPrice,
+            agenda,
             maximumOccupancy,
             totalNumberOfPlayers,
             unscannedTickets,
             successfulPayment,
-            status
+            status,
+            raceCategories,
+            availableTshirtSizes
         } = req.body;
-
 
         const event = await Event.findOne({ _id: id });
 
         if (!event) {
             return res.status(404).json({ message: "Event not found" });
         }
+        let imageUrl = event.image;
 
-        if (eventName) event.eventName = eventName;
-        if (venue) event.venue = venue;
-        if (date) event.date = date;
-        if (category) event.category = category;
+        if (req.file) {
+            try {
+                console.log("Uploading new image to Cloudinary for update...");
+
+                const bufferStream = new stream.PassThrough();
+                bufferStream.end(req.file.buffer);
+
+                const uploadResponse = await new Promise((resolve, reject) => {
+                    const uploadStream = cloudinary.uploader.upload_stream(
+                        {
+                            folder: 'events_images',
+                            resource_type: "auto"
+                        },
+                        (error, result) => {
+                            if (error) {
+                                console.error("Cloudinary upload error:", error);
+                                reject(error);
+                            } else {
+                                console.log("Cloudinary upload successful:", result);
+                                resolve(result);
+                            }
+                        }
+                    );
+                    bufferStream.pipe(uploadStream);
+                });
+
+                imageUrl = uploadResponse.secure_url;
+                console.log("New image URL:", imageUrl);
+
+            } catch (uploadError) {
+                console.error("Error uploading image to Cloudinary:", uploadError);
+                return res.status(500).json({
+                    message: "Error uploading image",
+                    error: uploadError.message
+                });
+            }
+        }
+
+        if (eventName !== undefined) event.eventName = eventName;
+        if (venue !== undefined) event.venue = venue;
+        if (date !== undefined) event.date = date;
+        if (time !== undefined) event.time = time;
+        if (category !== undefined) event.category = category;
         if (image !== undefined) event.image = image;
         if (description !== undefined) event.description = description;
-        if (status) event.status = status;
+        if (perTicketPrice !== undefined) event.perTicketPrice = perTicketPrice;
+        if (agenda !== undefined) event.agenda = agenda;
+        if (status !== undefined) event.status = status;
+        if (req.file) {
+            event.image = imageUrl;
+        } else if (req.body.image !== undefined) {
+            if (req.body.image === '') {
+                event.image = '';
+            } else if (req.body.image !== null) {
+                event.image = req.body.image;
+            }
+        }
+        if (raceCategories !== undefined) event.raceCategories = raceCategories;
+        if (availableTshirtSizes !== undefined) event.availableTshirtSizes = availableTshirtSizes;
 
         if (maximumOccupancy !== undefined) event.ticketStatus.maximumOccupancy = maximumOccupancy;
         if (totalNumberOfPlayers !== undefined) event.ticketStatus.totalNumberOfPlayers = totalNumberOfPlayers;
@@ -172,15 +293,19 @@ exports.updateEvent = async (req, res) => {
             message: "Event updated successfully",
             event: {
                 id: event._id,
-                eventId: event.eventId,
                 eventName: event.eventName,
                 venue: event.venue,
                 date: event.date,
+                time: event.time,
                 category: event.category,
                 image: event.image,
                 description: event.description,
+                perTicketPrice: event.perTicketPrice,
+                agenda: event.agenda,
                 ticketStatus: event.ticketStatus,
                 status: event.status,
+                raceCategories: event.raceCategories,
+                availableTshirtSizes: event.availableTshirtSizes,
                 createdAt: event.createdAt,
                 updatedAt: event.updatedAt
             }

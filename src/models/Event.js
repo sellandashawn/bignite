@@ -4,9 +4,15 @@ const eventSchema = new mongoose.Schema({
     eventName: { type: String, required: true },
     venue: { type: String, required: true },
     date: { type: Date, required: true },
+    time: { type: String, required: true },
     category: { type: String, required: true },
     image: { type: String },
     description: { type: String },
+    perTicketPrice: { type: Number, required: true },
+    agenda: [{
+        time: { type: String, required: true },
+        activity: { type: String, required: true },
+    }],
 
     ticketStatus: {
         maximumOccupancy: { type: Number, default: 0 },
