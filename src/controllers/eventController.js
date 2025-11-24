@@ -191,36 +191,81 @@ exports.updateEvent = async (req, res) => {
             return res.status(403).json({ message: "Access denied. Only admins can update events." });
         }
 
-        const { id } = req.params;
+        const eventId = req.params.id;
+        const event = await Event.findById(eventId);
+
+        if (!event) {
+            return res.status(404).json({ message: "Event not found" });
+        }
+
         const {
             eventName,
             venue,
             date,
             time,
             category,
-            image,
             description,
             perTicketPrice,
-            agenda,
-            maximumOccupancy,
-            totalNumberOfPlayers,
-            unscannedTickets,
-            successfulPayment,
-            status,
-            raceCategories,
-            availableTshirtSizes
+            agenda = [],
+            maximumOccupancy = 0,
+            totalNumberOfPlayers = 0,
+            unscannedTickets = 0,
+            successfulPayment = 0,
+            status = "upcoming",
+            raceCategories = [],
+            availableTshirtSizes = []
         } = req.body;
 
-        const event = await Event.findOne({ _id: id });
-
-        if (!event) {
-            return res.status(404).json({ message: "Event not found" });
+        let parsedAgenda = [];
+        if (typeof agenda === 'string') {
+            try {
+                parsedAgenda = JSON.parse(agenda);
+            } catch (error) {
+                console.error("Error parsing agenda:", error);
+                parsedAgenda = [];
+            }
+        } else if (Array.isArray(agenda)) {
+            parsedAgenda = agenda;
         }
-        let imageUrl = event.image;
 
+        let parsedRaceCategories = [];
+        if (typeof raceCategories === 'string') {
+            try {
+                parsedRaceCategories = JSON.parse(raceCategories);
+            } catch (error) {
+                console.error("Error parsing raceCategories:", error);
+                parsedRaceCategories = [];
+            }
+        } else if (Array.isArray(raceCategories)) {
+            parsedRaceCategories = raceCategories;
+        }
+
+        let parsedTshirtSizes = [];
+        if (typeof availableTshirtSizes === 'string') {
+            try {
+                parsedTshirtSizes = JSON.parse(availableTshirtSizes);
+            } catch (error) {
+                console.error("Error parsing availableTshirtSizes:", error);
+                parsedTshirtSizes = [];
+            }
+        } else if (Array.isArray(availableTshirtSizes)) {
+            parsedTshirtSizes = availableTshirtSizes;
+        }
+
+        let imageUrl = event.image;
         if (req.file) {
             try {
                 console.log("Uploading new image to Cloudinary for update...");
+
+                if (event.image) {
+                    const publicId = event.image.split('/').pop().split('.')[0];
+                    try {
+                        await cloudinary.uploader.destroy(`events_images/${publicId}`);
+                        console.log("Old image deleted from Cloudinary");
+                    } catch (deleteError) {
+                        console.error("Error deleting old image:", deleteError);
+                    }
+                }
 
                 const bufferStream = new stream.PassThrough();
                 bufferStream.end(req.file.buffer);
@@ -229,16 +274,11 @@ exports.updateEvent = async (req, res) => {
                     const uploadStream = cloudinary.uploader.upload_stream(
                         {
                             folder: 'events_images',
-                            resource_type: "auto"
+                            resource_type: "image"
                         },
                         (error, result) => {
-                            if (error) {
-                                console.error("Cloudinary upload error:", error);
-                                reject(error);
-                            } else {
-                                console.log("Cloudinary upload successful:", result);
-                                resolve(result);
-                            }
+                            if (error) reject(error);
+                            else resolve(result);
                         }
                     );
                     bufferStream.pipe(uploadStream);
@@ -246,68 +286,61 @@ exports.updateEvent = async (req, res) => {
 
                 imageUrl = uploadResponse.secure_url;
                 console.log("New image URL:", imageUrl);
-
             } catch (uploadError) {
                 console.error("Error uploading image to Cloudinary:", uploadError);
-                return res.status(500).json({
-                    message: "Error uploading image",
-                    error: uploadError.message
-                });
+                return res.status(500).json({ message: "Error uploading image", error: uploadError.message });
             }
         }
 
-        if (eventName !== undefined) event.eventName = eventName;
-        if (venue !== undefined) event.venue = venue;
-        if (date !== undefined) event.date = date;
-        if (time !== undefined) event.time = time;
-        if (category !== undefined) event.category = category;
-        if (image !== undefined) event.image = image;
-        if (description !== undefined) event.description = description;
-        if (perTicketPrice !== undefined) event.perTicketPrice = perTicketPrice;
-        if (agenda !== undefined) event.agenda = agenda;
-        if (status !== undefined) event.status = status;
-        if (req.file) {
-            event.image = imageUrl;
-        } else if (req.body.image !== undefined) {
-            if (req.body.image === '') {
-                event.image = '';
-            } else if (req.body.image !== null) {
-                event.image = req.body.image;
-            }
-        }
-        if (raceCategories !== undefined) event.raceCategories = raceCategories;
-        if (availableTshirtSizes !== undefined) event.availableTshirtSizes = availableTshirtSizes;
+        const updateData = {
+            eventName: eventName || event.eventName,
+            venue: venue || event.venue,
+            date: date || event.date,
+            time: time || event.time,
+            category: category || event.category,
+            description: description || event.description,
+            perTicketPrice: perTicketPrice !== undefined ? perTicketPrice : event.perTicketPrice,
+            image: imageUrl,
+            agenda: parsedAgenda.length > 0 ? parsedAgenda : event.agenda,
+            ticketStatus: {
+                maximumOccupancy: parseInt(maximumOccupancy) || event.ticketStatus.maximumOccupancy,
+                totalNumberOfPlayers: parseInt(totalNumberOfPlayers) || event.ticketStatus.totalNumberOfPlayers,
+                unscannedTickets: parseInt(unscannedTickets) || event.ticketStatus.unscannedTickets,
+                successfulPayment: parseInt(successfulPayment) || event.ticketStatus.successfulPayment
+            },
+            status: status || event.status,
+            raceCategories: parsedRaceCategories.length > 0 ? parsedRaceCategories : event.raceCategories,
+            availableTshirtSizes: parsedTshirtSizes.length > 0 ? parsedTshirtSizes : event.availableTshirtSizes,
+            updatedAt: new Date()
+        };
 
-        if (maximumOccupancy !== undefined) event.ticketStatus.maximumOccupancy = maximumOccupancy;
-        if (totalNumberOfPlayers !== undefined) event.ticketStatus.totalNumberOfPlayers = totalNumberOfPlayers;
-        if (unscannedTickets !== undefined) event.ticketStatus.unscannedTickets = unscannedTickets;
-        if (successfulPayment !== undefined) event.ticketStatus.successfulPayment = successfulPayment;
+        const updatedEvent = await Event.findByIdAndUpdate(
+            eventId,
+            updateData,
+            { new: true, runValidators: true }
+        );
 
-        event.updatedAt = new Date();
+        console.log("Event updated successfully:", updatedEvent._id);
 
-        await event.save();
-
-        console.log("Event updated successfully by admin:", event._id);
-
-        res.json({
+        res.status(200).json({
             message: "Event updated successfully",
             event: {
-                id: event._id,
-                eventName: event.eventName,
-                venue: event.venue,
-                date: event.date,
-                time: event.time,
-                category: event.category,
-                image: event.image,
-                description: event.description,
-                perTicketPrice: event.perTicketPrice,
-                agenda: event.agenda,
-                ticketStatus: event.ticketStatus,
-                status: event.status,
-                raceCategories: event.raceCategories,
-                availableTshirtSizes: event.availableTshirtSizes,
-                createdAt: event.createdAt,
-                updatedAt: event.updatedAt
+                id: updatedEvent._id,
+                eventName: updatedEvent.eventName,
+                venue: updatedEvent.venue,
+                date: updatedEvent.date,
+                time: updatedEvent.time,
+                category: updatedEvent.category,
+                image: updatedEvent.image,
+                description: updatedEvent.description,
+                perTicketPrice: updatedEvent.perTicketPrice,
+                agenda: updatedEvent.agenda,
+                ticketStatus: updatedEvent.ticketStatus,
+                status: updatedEvent.status,
+                raceCategories: updatedEvent.raceCategories,
+                availableTshirtSizes: updatedEvent.availableTshirtSizes,
+                createdAt: updatedEvent.createdAt,
+                updatedAt: updatedEvent.updatedAt
             }
         });
 
