@@ -11,6 +11,7 @@ exports.registerParticipantWithPayment = async (req, res) => {
     try {
         const { eventId } = req.params;
         const {
+            orderId,
             billingFirstName,
             billingLastName,
             billingEmail,
@@ -26,8 +27,9 @@ exports.registerParticipantWithPayment = async (req, res) => {
             amount,
             numberOfTickets = 1,
             paymentDate
-        } = req.body;
+        } = req.body.data;
 
+        console.log(req.body.data);
         console.log("Registering participant with payment for event:", eventId);
 
         const event = await Event.findById(eventId);
@@ -67,6 +69,7 @@ exports.registerParticipantWithPayment = async (req, res) => {
                 raceCategory,
                 teamName: teamName || ""
             },
+            orderId: orderId,
             eventId: event._id,
             ticketNumbers: ticketNumbers,
             numberOfTickets,
@@ -92,12 +95,14 @@ exports.registerParticipantWithPayment = async (req, res) => {
         await payment.save();
 
         await sendPaymentConfirmationEmail(
+            orderId,
             billingEmail,
             billingFirstName,
             ticketNumbers,
             amount,
             event.eventName || 'Event',
-            numberOfTickets
+            numberOfTickets,
+            eventId
         );
 
         console.log("Participant registered and payment confirmed successfully:", participant._id);
@@ -131,8 +136,13 @@ exports.registerParticipantWithPayment = async (req, res) => {
     }
 };
 
-const sendPaymentConfirmationEmail = async (email, name, ticketNumbers, amount, eventName, numberOfTickets) => {
+const sendPaymentConfirmationEmail = async (orderId, email, name, ticketNumbers, amount, eventName, numberOfTickets, eventId) => {
     try {
+        const event = await Event.findById(eventId);
+        if (!event) {
+            throw new Error("Event not found");
+        }
+
         const transporter = nodemailer.createTransport({
             host: "smtp.gmail.com",
             port: 465,
@@ -152,32 +162,38 @@ const sendPaymentConfirmationEmail = async (email, name, ticketNumbers, amount, 
             to: email,
             subject: 'GO Sports - Registration and Payment Confirmation',
             html: `
-                <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333333; line-height: 1.6;">
-                    <h2 style="color: #2c5aa0; text-align: center;">GO Sports</h2>
-                    <h3 style="color: #2c5aa0;">Registration & Payment Confirmation</h3>
-                    
-                    <p>Dear ${name},</p>
-                    <p>Thank you for registering for <strong>${eventName}</strong>! Your payment has been successfully processed.</p>
-                    
-                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #2c5aa0;">
-                        <h4 style="color: #2c5aa0; margin-top: 0;">Registration Details:</h4>
-                        <p><strong>Number of Tickets:</strong> ${numberOfTickets}</p>
-                        <p><strong>Ticket Numbers:</strong></p>
-                        <ul>${ticketList}</ul>
-                        <p><strong>Event:</strong> ${eventName}</p>
-                        <p><strong>Total Amount Paid:</strong> $${amount}</p>
-                        <p><strong>Transaction Date:</strong> ${new Date().toLocaleDateString()}</p>
-                    </div>
-                    
-                    <p>Please keep this confirmation for your records. Each ticket must be scanned individually at the event.</p>
-                    
-                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
-                        <p style="font-size: 14px; color: #666;">If you have any questions, please contact our support team.</p>
-                    </div>
-                    
-                    <p>Best regards,<br><strong>The GO Sports Team</strong></p>
-                </div>
-            `,
+    <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333333; line-height: 1.6;">
+      <h2 style="color: #2c5aa0; text-align: center;">GO Sports</h2>
+      <h3 style="color: #2c5aa0;">Registration & Payment Confirmation</h3>
+      
+      <p>Dear ${name},</p>
+      <p>Thank you for registering for <strong>${eventName}</strong>! Your payment has been successfully processed.</p>
+      
+      <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #2c5aa0;">
+        <h4 style="color: #2c5aa0; margin-top: 0;">Registration Details:</h4>
+        <p><strong>Order ID:</strong> ${orderId}</p>
+        <p><strong>Number of Tickets:</strong> ${numberOfTickets}</p>
+        <p><strong>Ticket Numbers:</strong></p>
+        <ul>${ticketList}</ul>
+        <p><strong>Event:</strong> ${eventName}</p>
+        <p><strong>Venue:</strong> ${event.venue || 'Venue not specified'}</p>
+        <p><strong>Date & Time:</strong> ${new Date(event.eventDate).toLocaleString()}</p>
+        <p><strong>Event Image:</strong><br><img src="${event.image || 'default_image_url'}" alt="Event Image" style="max-width: 100%; height: auto;" /></p>
+        <p><strong>Total Amount Paid:</strong> $${amount}</p>
+        <p><strong>Transaction Date:</strong> ${new Date().toLocaleDateString()}</p>
+      </div>
+      
+      <p>Please keep this confirmation for your records. Each ticket must be scanned individually at the event.</p>
+      
+      <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+        <p style="font-size: 14px; color: #666;">
+          If you have any questions, please contact our support team and reference your Order ID: <strong>${orderId}</strong>
+        </p>
+      </div>
+      
+      <p>Best regards,<br><strong>The GO Sports Team</strong></p>
+    </div>
+  `,
         };
 
         await transporter.sendMail(mailOptions);
@@ -190,16 +206,21 @@ const sendPaymentConfirmationEmail = async (email, name, ticketNumbers, amount, 
 
 exports.getEventParticipants = async (req, res) => {
     try {
+        // Check if the user is an admin
         if (req.user.userType !== 'admin') {
             return res.status(403).json({ message: "Access denied. Only admins can view participants." });
         }
 
+        // Get eventId from the request parameters, if it exists
         const { eventId } = req.params;
 
-        const participants = await Participant.find({ eventId: eventId })
+        // If eventId is provided, filter by eventId, else retrieve all participants
+        const filter = eventId ? { eventId: eventId } : {};
+
+        const participants = await Participant.find(filter)
             .sort({ createdAt: -1 });
 
-
+        // Return the participants
         res.json({
             message: "Participants retrieved successfully",
             participants: participants.map(participant => ({
