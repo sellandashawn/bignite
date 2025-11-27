@@ -206,23 +206,22 @@ const sendPaymentConfirmationEmail = async (orderId, email, name, ticketNumbers,
 
 exports.getEventParticipants = async (req, res) => {
     try {
-        // Check if the user is an admin
         if (req.user.userType !== 'admin') {
             return res.status(403).json({ message: "Access denied. Only admins can view participants." });
         }
 
-        // Get eventId from the request parameters, if it exists
-        const { eventId } = req.params;
+        const { eventId } = req.query;
+        let filter = {};
 
-        // If eventId is provided, filter by eventId, else retrieve all participants
-        const filter = eventId ? { eventId: eventId } : {};
+        if (eventId) {
+            filter.eventId = eventId;
+        }
 
         const participants = await Participant.find(filter)
             .sort({ createdAt: -1 });
 
-        // Return the participants
         res.json({
-            message: "Participants retrieved successfully",
+            message: eventId ? "Event participants retrieved successfully" : "All participants retrieved successfully",
             participants: participants.map(participant => ({
                 id: participant._id,
                 ticketNumbers: participant.ticketNumbers,
