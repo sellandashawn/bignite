@@ -5,6 +5,7 @@ const authRoutes = require("./src/routes/AuthRoutes");
 const eventRoutes = require("./src/routes/EventRoutes");
 const participantRoutes = require("./src/routes/ParticipantRoutes");
 const PaymentRoutes = require("./src/routes/PaymentsRoutes");
+const CategoryRoutes = require("./src/routes/categoryRoutes");
 
 const app = express();
 app.use(express.json());
@@ -13,19 +14,18 @@ app.use(cors());
 const PORT = process.env.PORT || 5000;
 connectDB();
 
-
 // Test Route
 app.get("/", (req, res) => {
-    res.send("API is running...");
+  res.send("API is running...");
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/events', eventRoutes);
-app.use('/api/tickets', participantRoutes);
-app.use('/api/payment', PaymentRoutes)
-
+app.use("/api/auth", authRoutes);
+app.use("/api/events", eventRoutes);
+app.use("/api/tickets", participantRoutes);
+app.use("/api/payment", PaymentRoutes);
+app.use("/api/category", CategoryRoutes);
 
 // Start the server
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
