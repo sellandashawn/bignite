@@ -24,7 +24,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/tickets", participantRoutes);
 app.use("/api/payment", PaymentRoutes);
-app.use("/api/category", CategoryRoutes);app.use('/api/stripe', StripeRoutes)
+app.use("/api/category", CategoryRoutes);
+app.use('/api/stripe', StripeRoutes)
 
 
 // Start the server
