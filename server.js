@@ -5,6 +5,7 @@ const authRoutes = require("./src/routes/AuthRoutes");
 const eventRoutes = require("./src/routes/EventRoutes");
 const participantRoutes = require("./src/routes/ParticipantRoutes");
 const PaymentRoutes = require("./src/routes/PaymentsRoutes");
+const StripeRoutes = require("./src/routes/StripeRoutes");
 
 const app = express();
 app.use(express.json());
@@ -23,6 +24,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/tickets', participantRoutes);
 app.use('/api/payment', PaymentRoutes)
+app.use('/api/stripe', StripeRoutes)
 
 
 // Start the server
