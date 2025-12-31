@@ -10,6 +10,10 @@ const categorySchema = new mongoose.Schema({
     type: String,
     default: "",
   },
+  type: {
+    type: String,
+    enum: ["event", "sports"],
+  },
   createdAt: {
     type: Date,
     default: Date.now,
