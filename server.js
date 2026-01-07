@@ -7,6 +7,7 @@ const participantRoutes = require("./src/routes/ParticipantRoutes");
 const PaymentRoutes = require("./src/routes/PaymentsRoutes");
 const StripeRoutes = require("./src/routes/StripeRoutes");
 const CategoryRoutes = require("./src/routes/categoryRoutes");
+const SportsRoutes = require("./src/routes/SportsRoutes");
 
 const app = express();
 app.use(express.json());
@@ -25,8 +26,8 @@ app.use("/api/events", eventRoutes);
 app.use("/api/tickets", participantRoutes);
 app.use("/api/payment", PaymentRoutes);
 app.use("/api/category", CategoryRoutes);
-app.use('/api/stripe', StripeRoutes)
-
+app.use("/api/stripe", StripeRoutes);
+app.use("/api/sports", SportsRoutes);
 
 // Start the server
 app.listen(PORT, () => {
