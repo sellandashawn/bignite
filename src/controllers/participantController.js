@@ -413,7 +413,7 @@ const sendPaymentConfirmationEmail = async (
             <div>
               <p><strong>Order ID:</strong><br>${orderId}</p>
               <p><strong>Number of Tickets:</strong><br>${numberOfTickets}</p>
-              <p><strong>Total Amount Paid:</strong><br>$${amount}</p>
+              <p><strong>Total Amount Paid:</strong><br>LKR ${amount}</p>
             </div>
             <div>
               <p><strong>${isSport ? "Sport" : "Event"}:</strong><br>${eventName}</p>
