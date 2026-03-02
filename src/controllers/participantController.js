@@ -1,5 +1,6 @@
 const Participant = require("../models/Participant");
 const Event = require("../models/Event");
+const Sport = require("../models/Sports");
 const Payment = require("../models/Payments");
 const nodemailer = require("nodemailer");
 const QRCode = require("qrcode");
@@ -47,7 +48,7 @@ const generateQRCodeData = async (ticketData) => {
 
 exports.registerParticipantWithPayment = async (req, res) => {
   try {
-    const { eventId } = req.params;
+    const { eventId: routeEntityId } = req.params;
     const {
       orderId,
       billingFirstName,
@@ -59,10 +60,16 @@ exports.registerParticipantWithPayment = async (req, res) => {
       amount,
       numberOfTickets = 1,
       paymentDate,
+      isSport = false,
+      sportId,
+      eventId,
     } = req.body.data;
 
     console.log(req.body.data);
-    console.log("Registering participant with payment for event:", eventId);
+    console.log(
+      "Registering participant with payment for entity:",
+      routeEntityId,
+    );
 
     // Validate attendees array
     if (!attendees || !Array.isArray(attendees) || attendees.length === 0) {
@@ -75,23 +82,62 @@ exports.registerParticipantWithPayment = async (req, res) => {
       });
     }
 
-    const event = await Event.findById(eventId);
-    if (!event) {
-      return res.status(404).json({ message: "Event not found" });
-    }
-    if (event.status !== "upcoming" && event.status !== "ongoing") {
-      return res
-        .status(400)
-        .json({ message: "Registrations are closed for this event" });
-    }
+    let targetEvent = null;
+    let targetSport = null;
+    let availableSpots = 0;
 
-    const availableSpots =
-      event.ticketStatus.maximumOccupancy -
-      event.ticketStatus.totalNumberOfPlayers;
-    if (availableSpots < numberOfTickets) {
-      return res.status(400).json({
-        message: `Only ${availableSpots} spots available, but requested ${numberOfTickets} tickets`,
-      });
+    if (isSport) {
+      const targetSportId = sportId || routeEntityId;
+
+      targetSport = await Sport.findById(targetSportId);
+      if (!targetSport) {
+        return res.status(404).json({ message: "Sport not found" });
+      }
+
+      if (
+        targetSport.status !== "upcoming" &&
+        targetSport.status !== "ongoing"
+      ) {
+        return res
+          .status(400)
+          .json({ message: "Registrations are closed for this sport" });
+      }
+
+      const maxParticipants =
+        targetSport.participationStatus?.maximumParticipants || 0;
+      const confirmedParticipants =
+        targetSport.participationStatus?.confirmedParticipants || 0;
+
+      availableSpots = maxParticipants - confirmedParticipants;
+      if (availableSpots < numberOfTickets) {
+        return res.status(400).json({
+          message: `Only ${availableSpots} participant spots available, but requested ${numberOfTickets}`,
+        });
+      }
+    } else {
+      const targetEventId = eventId || routeEntityId;
+
+      targetEvent = await Event.findById(targetEventId);
+      if (!targetEvent) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+      if (
+        targetEvent.status !== "upcoming" &&
+        targetEvent.status !== "ongoing"
+      ) {
+        return res
+          .status(400)
+          .json({ message: "Registrations are closed for this event" });
+      }
+
+      availableSpots =
+        targetEvent.ticketStatus.maximumOccupancy -
+        targetEvent.ticketStatus.totalNumberOfPlayers;
+      if (availableSpots < numberOfTickets) {
+        return res.status(400).json({
+          message: `Only ${availableSpots} spots available, but requested ${numberOfTickets} tickets`,
+        });
+      }
     }
 
     // Generate ticket numbers and QR codes for all attendees
@@ -107,7 +153,7 @@ exports.registerParticipantWithPayment = async (req, res) => {
         ticketNumber,
         attendeeName: attendee.name,
         attendeeId: attendee.idNumber,
-        eventId: event._id.toString(),
+        eventId: (targetEvent?._id || targetSport?._id || "").toString(),
         secret: process.env.QR_SECRET || "default-secret-key",
       };
 
@@ -117,9 +163,11 @@ exports.registerParticipantWithPayment = async (req, res) => {
         ticketNumber,
         attendeeName: attendee.name,
         attendeeId: attendee.idNumber,
-        eventId: event._id.toString(),
-        eventName: event.eventName,
-        eventDate: event.date || event.eventDate,
+        eventId: (targetEvent?._id || targetSport?._id || "").toString(),
+        eventName: isSport ? targetSport.sportName : targetEvent.eventName,
+        eventDate: isSport
+          ? targetSport.date
+          : targetEvent.date || targetEvent.eventDate,
         hash: qrHash,
       });
 
@@ -165,7 +213,9 @@ exports.registerParticipantWithPayment = async (req, res) => {
       },
       attendeeInfo: mappedAttendees,
       orderId: orderId,
-      eventId: event._id,
+      eventId: isSport ? undefined : targetEvent._id,
+      sportId: isSport ? targetSport._id : undefined,
+      isSport: !!isSport,
       ticketNumbers: ticketNumbers,
       qrCodes: qrCodes,
       numberOfTickets,
@@ -176,16 +226,28 @@ exports.registerParticipantWithPayment = async (req, res) => {
 
     await participant.save();
 
-    event.ticketStatus.totalNumberOfPlayers += numberOfTickets;
-    event.ticketStatus.unscannedTickets += numberOfTickets;
-    await event.save();
+    if (isSport) {
+      targetSport.participationStatus.confirmedParticipants =
+        (targetSport.participationStatus.confirmedParticipants || 0) +
+        numberOfTickets;
+      targetSport.participationStatus.registeredParticipants =
+        (targetSport.participationStatus.registeredParticipants || 0) +
+        numberOfTickets;
+      targetSport.markModified("participationStatus");
+      await targetSport.save();
+    } else {
+      targetEvent.ticketStatus.totalNumberOfPlayers += numberOfTickets;
+      targetEvent.ticketStatus.unscannedTickets += numberOfTickets;
+      await targetEvent.save();
+    }
 
     const payment = new Payment({
       amount,
       date: paymentDate || new Date(),
       participantId: participant._id,
       numberOfTickets,
-      eventId: event._id,
+      eventId: isSport ? undefined : targetEvent._id,
+      sportId: isSport ? targetSport._id : undefined,
     });
 
     await payment.save();
@@ -197,15 +259,18 @@ exports.registerParticipantWithPayment = async (req, res) => {
       ticketNumbers,
       qrCodes,
       amount,
-      event.eventName || "Event",
+      isSport
+        ? targetSport.sportName || "Sport"
+        : targetEvent.eventName || "Event",
       numberOfTickets,
-      eventId,
-      mappedAttendees
+      (targetEvent?._id || targetSport?._id || "").toString(),
+      mappedAttendees,
+      !!isSport,
     );
 
     console.log(
       "Participant registered and payment confirmed successfully:",
-      participant._id
+      participant._id,
     );
 
     res.status(201).json({
@@ -245,13 +310,24 @@ const sendPaymentConfirmationEmail = async (
   amount,
   eventName,
   numberOfTickets,
-  eventId,
-  attendees
+  entityId,
+  attendees,
+  isSport = false,
 ) => {
   try {
-    const event = await Event.findById(eventId);
-    if (!event) {
-      throw new Error("Event not found");
+    let event = null;
+    let sport = null;
+
+    if (isSport) {
+      sport = await Sport.findById(entityId);
+      if (!sport) {
+        throw new Error("Sport not found");
+      }
+    } else {
+      event = await Event.findById(entityId);
+      if (!event) {
+        throw new Error("Event not found");
+      }
     }
 
     const transporter = nodemailer.createTransport({
@@ -264,7 +340,8 @@ const sendPaymentConfirmationEmail = async (
       },
     });
 
-    const eventDate = event.date || event.eventDate;
+    const rawDate = isSport ? sport.date : event.date || event.eventDate;
+    const eventDate = rawDate;
     const formattedDate = eventDate
       ? new Date(eventDate).toLocaleString("en-US", {
           year: "numeric",
@@ -275,7 +352,8 @@ const sendPaymentConfirmationEmail = async (
         })
       : "Date not specified";
 
-    const eventTime = event.time ? ` at ${event.time}` : "";
+    const rawTime = isSport ? sport.time : event.time;
+    const eventTime = rawTime ? ` at ${rawTime}` : "";
 
     // Generate unique CID for each QR code
     const qrAttachments = qrCodes.map((qrCode, index) => {
@@ -299,8 +377,8 @@ const sendPaymentConfirmationEmail = async (
           <img src="cid:qr_${
             ticketNumbers[index]
           }_${Date.now()}" alt="QR Code for ${
-          attendee.name
-        }" style="max-width: 200px; height: auto; border: 1px solid #ddd; padding: 10px; background: white; display: block; margin: 10px 0;" />
+            attendee.name
+          }" style="max-width: 200px; height: auto; border: 1px solid #ddd; padding: 10px; background: white; display: block; margin: 10px 0;" />
           <p style="font-size: 12px; color: #666; margin-top: 5px;">Scan this QR code at the event entrance</p>
         </div>
         <p><strong>Gender:</strong> ${attendee.gender}</p>
@@ -310,7 +388,7 @@ const sendPaymentConfirmationEmail = async (
             : ""
         }
       </div>
-    `
+    `,
       )
       .join("");
 
@@ -338,9 +416,9 @@ const sendPaymentConfirmationEmail = async (
               <p><strong>Total Amount Paid:</strong><br>$${amount}</p>
             </div>
             <div>
-              <p><strong>Event:</strong><br>${eventName}</p>
+              <p><strong>${isSport ? "Sport" : "Event"}:</strong><br>${eventName}</p>
               <p><strong>Venue:</strong><br>${
-                event.venue || "Venue not specified"
+                (isSport ? sport.venue : event.venue) || "Venue not specified"
               }</p>
               <p><strong>Date & Time:</strong><br>${formattedDate}${eventTime}</p>
             </div>
@@ -377,7 +455,7 @@ const sendPaymentConfirmationEmail = async (
     await transporter.sendMail(mailOptions);
     console.log(
       "Payment confirmation email with embedded QR codes sent to:",
-      email
+      email,
     );
   } catch (error) {
     console.error("Error sending payment confirmation email:", error);
@@ -545,12 +623,12 @@ exports.scanTicketByQR = async (req, res) => {
     } else {
       console.log(
         "DEBUG - Participant has QR codes:",
-        participant.qrCodes.length
+        participant.qrCodes.length,
       );
 
       // Find the specific QR code
       const qrCodeIndex = participant.qrCodes.findIndex(
-        (qr) => qr.ticketNumber === ticketNumber
+        (qr) => qr.ticketNumber === ticketNumber,
       );
 
       if (qrCodeIndex !== -1) {
@@ -604,7 +682,7 @@ exports.scanTicketByQR = async (req, res) => {
     // Update QR code as used if exists
     if (participant.qrCodes && participant.qrCodes.length > 0) {
       const qrCodeIndex = participant.qrCodes.findIndex(
-        (qr) => qr.ticketNumber === ticketNumber
+        (qr) => qr.ticketNumber === ticketNumber,
       );
 
       if (qrCodeIndex !== -1) {
@@ -617,7 +695,7 @@ exports.scanTicketByQR = async (req, res) => {
     // Update scanned status
     if (!participant.scannedStatus) {
       participant.scannedStatus = new Array(participant.numberOfTickets).fill(
-        false
+        false,
       );
     }
 
@@ -630,7 +708,7 @@ exports.scanTicketByQR = async (req, res) => {
     if (event) {
       event.ticketStatus.unscannedTickets = Math.max(
         0,
-        (event.ticketStatus.unscannedTickets || 0) - 1
+        (event.ticketStatus.unscannedTickets || 0) - 1,
       );
       await event.save();
     }
@@ -675,7 +753,10 @@ exports.getEventParticipants = async (req, res) => {
       filter.eventId = eventId;
     }
 
-    const participants = await Participant.find(filter).sort({ createdAt: -1 });
+    const participants = await Participant.find(filter)
+      .populate("eventId", "eventName date")
+      .populate("sportId", "sportName date")
+      .sort({ createdAt: -1 });
 
     res.json({
       message: eventId
@@ -691,7 +772,21 @@ exports.getEventParticipants = async (req, res) => {
         scannedTickets: participant.scannedTickets,
         scannedStatus: participant.scannedStatus,
         createdAt: participant.createdAt,
-        eventId: participant.eventId,
+        event: participant.eventId
+          ? {
+              id: participant.eventId._id,
+              name: participant.eventId.eventName,
+              date: participant.eventId.date,
+            }
+          : null,
+        sport: participant.sportId
+          ? {
+              id: participant.sportId._id,
+              name: participant.sportId.sportName,
+              date: participant.sportId.date,
+            }
+          : null,
+        isSport: participant.isSport,
         orderId: participant.orderId,
       })),
     });
