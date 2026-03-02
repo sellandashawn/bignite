@@ -6,6 +6,7 @@ const eventRoutes = require("./src/routes/EventRoutes");
 const participantRoutes = require("./src/routes/ParticipantRoutes");
 const PaymentRoutes = require("./src/routes/PaymentsRoutes");
 const StripeRoutes = require("./src/routes/StripeRoutes");
+const PayHereRoutes = require("./src/routes/PayHereRoutes");
 const CategoryRoutes = require("./src/routes/categoryRoutes");
 const SportsRoutes = require("./src/routes/SportsRoutes");
 
@@ -27,6 +28,7 @@ app.use("/api/tickets", participantRoutes);
 app.use("/api/payment", PaymentRoutes);
 app.use("/api/category", CategoryRoutes);
 app.use("/api/stripe", StripeRoutes);
+app.use("/api/payhere", PayHereRoutes);
 app.use("/api/sports", SportsRoutes);
 
 // Start the server

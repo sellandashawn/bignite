@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 
 const paymentSchema = new mongoose.Schema({
+  sessionId: { type: String, index: true },
   amount: { type: Number, required: true },
   date: { type: Date, default: Date.now },
   participantId: {
