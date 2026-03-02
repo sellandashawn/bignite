@@ -32,7 +32,18 @@ const participantSchema = new mongoose.Schema({
   eventId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Event",
-    required: true,
+    required: false,
+  },
+
+  sportId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Sport",
+    required: false,
+  },
+
+  isSport: {
+    type: Boolean,
+    default: false,
   },
 
   orderId: { type: String, required: true },
@@ -47,6 +58,17 @@ const participantSchema = new mongoose.Schema({
   numberOfTickets: { type: Number, required: true, default: 1 },
   scannedTickets: { type: Number, default: 0 },
   scannedStatus: [{ type: Boolean, default: false }],
+
+  qrCodes: [
+    {
+      ticketNumber: { type: String },
+      qrData: { type: String },
+      qrHash: { type: String },
+      isUsed: { type: Boolean, default: false },
+      usedAt: { type: Date },
+      scannedBy: { type: String },
+    },
+  ],
 
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
