@@ -46,9 +46,18 @@ const generateQRCodeData = async (ticketData) => {
   }
 };
 
+const VALID_GENDERS = ["male", "female", "other"];
+
 exports.registerParticipantWithPayment = async (req, res) => {
   try {
     const { eventId: routeEntityId } = req.params;
+    const bodyData = req.body?.data ?? req.body;
+    if (!bodyData || typeof bodyData !== "object") {
+      return res.status(400).json({
+        message: "Invalid request: missing or invalid body (expected { data: { ... } })",
+      });
+    }
+
     const {
       orderId,
       billingFirstName,
@@ -63,9 +72,9 @@ exports.registerParticipantWithPayment = async (req, res) => {
       isSport = false,
       sportId,
       eventId,
-    } = req.body.data;
+    } = bodyData;
 
-    console.log(req.body.data);
+    console.log("register-with-payment bodyData:", bodyData);
     console.log(
       "Registering participant with payment for entity:",
       routeEntityId,
@@ -130,9 +139,12 @@ exports.registerParticipantWithPayment = async (req, res) => {
           .json({ message: "Registrations are closed for this event" });
       }
 
-      availableSpots =
-        targetEvent.ticketStatus.maximumOccupancy -
-        targetEvent.ticketStatus.totalNumberOfPlayers;
+      const maxOccupancy =
+        targetEvent.ticketStatus?.maximumOccupancy ?? Number.MAX_SAFE_INTEGER;
+      const totalPlayers =
+        targetEvent.ticketStatus?.totalNumberOfPlayers ?? 0;
+
+      availableSpots = maxOccupancy - totalPlayers;
       if (availableSpots < numberOfTickets) {
         return res.status(400).json({
           message: `Only ${availableSpots} spots available, but requested ${numberOfTickets} tickets`,
@@ -179,27 +191,27 @@ exports.registerParticipantWithPayment = async (req, res) => {
       });
     }
 
-    const mappedAttendees = attendees.map((attendee, index) => ({
-      name: attendee.name,
-      identificationNumber: attendee.idNumber,
-      age: attendee.age ? parseInt(attendee.age) : null,
-      gender: attendee.gender,
-      emailAddress: attendee.attendeeEmail,
-      //   tshirtSize: attendee.tshirtSize,
-      //   raceCategory: attendee.raceCategory,
-      teamName: teamName || attendee.teamName || "",
-    }));
+    const mappedAttendees = attendees.map((attendee, index) => {
+      const gender =
+        attendee.gender && VALID_GENDERS.includes(String(attendee.gender).toLowerCase())
+          ? String(attendee.gender).toLowerCase()
+          : "other";
+      return {
+        name: attendee.name || "",
+        identificationNumber: attendee.idNumber || "",
+        age: attendee.age ? parseInt(attendee.age, 10) : null,
+        gender,
+        emailAddress: attendee.attendeeEmail || "",
+        teamName: teamName || attendee.teamName || "",
+      };
+    });
 
     // Validate required fields for each attendee
     for (let i = 0; i < mappedAttendees.length; i++) {
       const attendee = mappedAttendees[i];
-      if (
-        !attendee.name ||
-        !attendee.identificationNumber ||
-        !attendee.gender
-      ) {
+      if (!attendee.name || !attendee.identificationNumber) {
         return res.status(400).json({
-          message: `Attendee ${i + 1} is missing required fields`,
+          message: `Attendee ${i + 1} is missing required fields (name, idNumber)`,
         });
       }
     }
@@ -236,12 +248,21 @@ exports.registerParticipantWithPayment = async (req, res) => {
       targetSport.markModified("participationStatus");
       await targetSport.save();
     } else {
-      targetEvent.ticketStatus.totalNumberOfPlayers += numberOfTickets;
-      targetEvent.ticketStatus.unscannedTickets += numberOfTickets;
+      if (!targetEvent.ticketStatus) {
+        targetEvent.ticketStatus = {
+          maximumOccupancy: numberOfTickets,
+          totalNumberOfPlayers: 0,
+          unscannedTickets: 0,
+        };
+      }
+      const ts = targetEvent.ticketStatus;
+      ts.totalNumberOfPlayers = (ts.totalNumberOfPlayers ?? 0) + numberOfTickets;
+      ts.unscannedTickets = (ts.unscannedTickets ?? 0) + numberOfTickets;
       await targetEvent.save();
     }
 
     const payment = new Payment({
+      sessionId: orderId, 
       amount,
       date: paymentDate || new Date(),
       participantId: participant._id,
@@ -355,41 +376,47 @@ const sendPaymentConfirmationEmail = async (
     const rawTime = isSport ? sport.time : event.time;
     const eventTime = rawTime ? ` at ${rawTime}` : "";
 
-    // Generate unique CID for each QR code
+    // Build attachments: nodemailer needs buffer for data URLs; use stable CIDs for inline images
+    const cidList = [];
     const qrAttachments = qrCodes.map((qrCode, index) => {
-      const cid = `qr_${ticketNumbers[index]}_${Date.now()}`;
+      const tid = ticketNumbers[index].replace(/[^a-zA-Z0-9]/g, "_");
+      const cid = `qr_${tid}`;
+      cidList.push(cid);
+      const base64Data =
+        qrCode.qrData && qrCode.qrData.includes(",")
+          ? qrCode.qrData.split(",")[1]
+          : qrCode.qrData;
       return {
         filename: `ticket_${ticketNumbers[index]}.png`,
-        path: qrCode.qrData,
-        cid: cid,
+        content: base64Data
+          ? Buffer.from(base64Data, "base64")
+          : qrCode.qrData,
+        cid,
         contentType: "image/png",
       };
     });
 
     const attendeeList = attendees
-      .map(
-        (attendee, index) => `
+      .map((attendee, index) => {
+        const cid = cidList[index] || `qr_${index}`;
+        return `
       <div style="background-color: #f9f9f9; padding: 15px; margin-bottom: 15px; border-left: 3px solid #2c5aa0; border-radius: 5px;">
         <p><strong>Attendee ${index + 1}:</strong> ${attendee.name}</p>
         <p><strong>Ticket Number:</strong> ${ticketNumbers[index]}</p>
         <div style="margin: 15px 0;">
           <p><strong>QR Code:</strong></p>
-          <img src="cid:qr_${
-            ticketNumbers[index]
-          }_${Date.now()}" alt="QR Code for ${
-            attendee.name
-          }" style="max-width: 200px; height: auto; border: 1px solid #ddd; padding: 10px; background: white; display: block; margin: 10px 0;" />
+          <img src="cid:${cid}" alt="QR Code for ${attendee.name}" style="max-width: 200px; height: auto; border: 1px solid #ddd; padding: 10px; background: white; display: block; margin: 10px 0;" />
           <p style="font-size: 12px; color: #666; margin-top: 5px;">Scan this QR code at the event entrance</p>
         </div>
-        <p><strong>Gender:</strong> ${attendee.gender}</p>
+        <p><strong>Gender:</strong> ${attendee.gender || "—"}</p>
         ${
           attendee.teamName
             ? `<p><strong>Team Name:</strong> ${attendee.teamName}</p>`
             : ""
         }
       </div>
-    `,
-      )
+    `;
+      })
       .join("");
 
     const mailOptions = {

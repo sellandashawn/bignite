@@ -1,5 +1,6 @@
 const Payment = require("../models/Payments");
 const Event = require("../models/Event");
+const Sport = require("../models/Sports");
 const mongoose = require("mongoose");
 
 exports.getAllPayments = async (req, res) => {
@@ -125,6 +126,81 @@ exports.getPaymentsByEvent = async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching event payments:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+exports.getPaymentsBySport = async (req, res) => {
+  try {
+    const { sportId } = req.params;
+    const { page = 1, limit = 10 } = req.query;
+
+    const sport = await Sport.findById(sportId);
+    if (!sport) {
+      return res.status(404).json({ message: "Sport not found" });
+    }
+
+    let filter = { sportId };
+
+    const payments = await Payment.find(filter)
+      .populate("participantId", "billingInfo attendeeInfo ticketNumber")
+      .sort({ date: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Payment.countDocuments(filter);
+
+    const revenueResult = await Payment.aggregate([
+      { $match: { sportId: new mongoose.Types.ObjectId(sportId) } },
+      { $group: { _id: null, totalRevenue: { $sum: "$amount" } } },
+    ]);
+    const totalRevenue =
+      revenueResult.length > 0 ? revenueResult[0].totalRevenue : 0;
+
+    res.json({
+      message: "Sport payments retrieved successfully",
+      sport: {
+        id: sport._id,
+        sportName: sport.sportName,
+        date: sport.date,
+      },
+      payments: payments.map((payment) => ({
+        id: payment._id,
+        amount: payment.amount,
+        date: payment.date,
+        numberOfTickets: payment.numberOfTickets,
+        participant: payment.participantId
+          ? {
+              id: payment.participantId._id,
+              ticketNumber: payment.participantId.ticketNumber,
+              name:
+                payment.participantId.billingInfo.firstName +
+                " " +
+                payment.participantId.billingInfo.lastName,
+              email: payment.participantId.billingInfo.email,
+            }
+          : null,
+      })),
+      summary: {
+        totalRevenue,
+        totalPayments: total,
+        successfulPayments: await Payment.countDocuments({
+          sportId,
+          status: "successful",
+        }),
+        failedPayments: await Payment.countDocuments({
+          sportId,
+          status: "failed",
+        }),
+      },
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        totalPayments: total,
+      },
+    });
+  } catch (err) {
+    console.error("Error fetching sport payments:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
