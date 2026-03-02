@@ -55,21 +55,23 @@ exports.createCheckoutSession = async (req, res) => {
       eventOrSportName = "Sport/Event Registration";
     }
 
-    // Create Stripe Checkout Session
+    // Create Stripe Checkout Session (amounts are assumed to be in LKR)
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
       line_items: [
         {
           price_data: {
-            currency: "usd",
+            currency: "lkr",
             product_data: {
               name: eventOrSportName,
               description: `Quantity: ${quantity}`,
             },
-            unit_amount: Math.round(totalAmount * 100), // Stripe accepts cents
+            // Stripe expects the smallest unit; here we assume
+            // totalAmount is already in LKR, so we multiply by 100
+            unit_amount: Math.round(totalAmount * 100),
           },
-          quantity: 1, // Since totalAmount already includes quantity
+          quantity: 1,
         },
       ],
       metadata: {
