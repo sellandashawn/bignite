@@ -54,7 +54,8 @@ exports.registerParticipantWithPayment = async (req, res) => {
     const bodyData = req.body?.data ?? req.body;
     if (!bodyData || typeof bodyData !== "object") {
       return res.status(400).json({
-        message: "Invalid request: missing or invalid body (expected { data: { ... } })",
+        message:
+          "Invalid request: missing or invalid body (expected { data: { ... } })",
       });
     }
 
@@ -141,8 +142,7 @@ exports.registerParticipantWithPayment = async (req, res) => {
 
       const maxOccupancy =
         targetEvent.ticketStatus?.maximumOccupancy ?? Number.MAX_SAFE_INTEGER;
-      const totalPlayers =
-        targetEvent.ticketStatus?.totalNumberOfPlayers ?? 0;
+      const totalPlayers = targetEvent.ticketStatus?.totalNumberOfPlayers ?? 0;
 
       availableSpots = maxOccupancy - totalPlayers;
       if (availableSpots < numberOfTickets) {
@@ -193,7 +193,8 @@ exports.registerParticipantWithPayment = async (req, res) => {
 
     const mappedAttendees = attendees.map((attendee, index) => {
       const gender =
-        attendee.gender && VALID_GENDERS.includes(String(attendee.gender).toLowerCase())
+        attendee.gender &&
+        VALID_GENDERS.includes(String(attendee.gender).toLowerCase())
           ? String(attendee.gender).toLowerCase()
           : "other";
       return {
@@ -256,13 +257,14 @@ exports.registerParticipantWithPayment = async (req, res) => {
         };
       }
       const ts = targetEvent.ticketStatus;
-      ts.totalNumberOfPlayers = (ts.totalNumberOfPlayers ?? 0) + numberOfTickets;
+      ts.totalNumberOfPlayers =
+        (ts.totalNumberOfPlayers ?? 0) + numberOfTickets;
       ts.unscannedTickets = (ts.unscannedTickets ?? 0) + numberOfTickets;
       await targetEvent.save();
     }
 
     const payment = new Payment({
-      sessionId: orderId, 
+      sessionId: orderId,
       amount,
       date: paymentDate || new Date(),
       participantId: participant._id,
@@ -388,9 +390,7 @@ const sendPaymentConfirmationEmail = async (
           : qrCode.qrData;
       return {
         filename: `ticket_${ticketNumbers[index]}.png`,
-        content: base64Data
-          ? Buffer.from(base64Data, "base64")
-          : qrCode.qrData,
+        content: base64Data ? Buffer.from(base64Data, "base64") : qrCode.qrData,
         cid,
         contentType: "image/png",
       };
@@ -422,11 +422,11 @@ const sendPaymentConfirmationEmail = async (
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
-      subject: "GO Sports - Registration and Payment Confirmation",
+      subject: "Ignite - Registration and Payment Confirmation",
       html: `
     <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 700px; margin: 0 auto; color: #333333; line-height: 1.6;">
       <div style="text-align: center; padding: 20px 0; background-color: #2c5aa0; color: white;">
-        <h2 style="margin: 0;">GO Sports</h2>
+        <h2 style="margin: 0;">Ignite</h2>
         <h3 style="margin: 10px 0 0 0;">Registration & Payment Confirmation</h3>
       </div>
       
@@ -472,7 +472,7 @@ const sendPaymentConfirmationEmail = async (
           </p>
         </div>
         
-        <p>Best regards,<br><strong>The GO Sports Team</strong></p>
+        <p>Best regards,<br><strong>The Ignite Team</strong></p>
       </div>
     </div>
   `,
