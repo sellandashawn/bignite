@@ -498,9 +498,9 @@ exports.scanTicketByQR = async (req, res) => {
         .json({ message: "Access denied. Only admins can create events." });
     }
 
-    const { qrData, eventId } = req.body;
+    const { qrData, eventId: entityId } = req.body;
     console.log("DEBUG - Received QR data:", qrData);
-    console.log("DEBUG - Event ID from request body:", eventId);
+    console.log("DEBUG - Entity ID from request body (event or sport):", entityId);
 
     // Parse QR code data
     let parsedData;
@@ -512,7 +512,7 @@ exports.scanTicketByQR = async (req, res) => {
       return res.status(400).json({ message: "Invalid QR code data" });
     }
 
-    const { ticketNumber, hash, eventId: qrEventId } = parsedData;
+    const { ticketNumber, hash, eventId: qrEntityId } = parsedData;
 
     if (!ticketNumber) {
       return res
@@ -521,127 +521,118 @@ exports.scanTicketByQR = async (req, res) => {
     }
 
     console.log("DEBUG - Ticket number:", ticketNumber);
-    console.log("DEBUG - Event ID from QR code:", qrEventId);
+    console.log("DEBUG - Entity ID from QR code:", qrEntityId);
 
-    // Check if eventId in QR code matches the eventId from request body
-    if (qrEventId && eventId && qrEventId !== eventId) {
-      console.log("DEBUG - Event ID mismatch!");
-      console.log("DEBUG - QR Event ID:", qrEventId);
-      console.log("DEBUG - Request Event ID:", eventId);
-
-      // Try to find the event names for better error message
-      let qrEventName = "Unknown Event";
-      let selectedEventName = "Unknown Event";
-
+    // Check if entity ID in QR matches the entityId from request body (event or sport)
+    if (qrEntityId && entityId && qrEntityId !== entityId) {
+      console.log("DEBUG - Entity ID mismatch!");
+      let qrEntityName = "Unknown";
+      let selectedEntityName = "Unknown";
       try {
-        if (qrEventId) {
-          const qrEvent = await Event.findById(qrEventId);
-          if (qrEvent) qrEventName = qrEvent.eventName;
+        if (qrEntityId) {
+          const qrEvent = await Event.findById(qrEntityId);
+          const qrSport = await Sport.findById(qrEntityId);
+          if (qrEvent) qrEntityName = qrEvent.eventName;
+          else if (qrSport) qrEntityName = qrSport.sportName;
         }
-        if (eventId) {
-          const selectedEvent = await Event.findById(eventId);
-          if (selectedEvent) selectedEventName = selectedEvent.eventName;
+        if (entityId) {
+          const selEvent = await Event.findById(entityId);
+          const selSport = await Sport.findById(entityId);
+          if (selEvent) selectedEntityName = selEvent.eventName;
+          else if (selSport) selectedEntityName = selSport.sportName;
         }
       } catch (err) {
-        console.log("DEBUG - Could not fetch event names:", err);
+        console.log("DEBUG - Could not fetch entity names:", err);
       }
-
       return res.status(400).json({
-        message: "QR code does not belong to the selected event",
+        message: "QR code does not belong to the selected event/sport",
         details: {
-          selectedEvent: {
-            id: eventId,
-            name: selectedEventName,
-          },
-          qrCodeEvent: {
-            id: qrEventId,
-            name: qrEventName,
-          },
+          selected: { id: entityId, name: selectedEntityName },
+          qrCode: { id: qrEntityId, name: qrEntityName },
         },
-        error: "EVENT_MISMATCH",
+        error: "ENTITY_MISMATCH",
       });
     }
 
-    // Find participant by ticket number
+    // Find participant by ticket number; support both events and sports
     const participant = await Participant.findOne({
       ticketNumbers: { $in: [ticketNumber] },
-    }).populate("eventId");
+    })
+      .populate("eventId")
+      .populate("sportId");
 
     if (!participant) {
       console.log("DEBUG - Ticket not found in database");
       return res.status(404).json({ message: "Ticket not found" });
     }
 
-    console.log("DEBUG - Found participant:", participant._id);
-    console.log("DEBUG - Participant's event ID:", participant.eventId?._id);
+    const isSport = participant.isSport === true;
+    const event = isSport ? null : participant.eventId;
+    const sport = isSport ? participant.sportId : null;
+    const entity = isSport ? sport : event;
+    const entityName = isSport
+      ? (sport && sport.sportName) || "Sport"
+      : (event && event.eventName) || "Event";
+    const entityDate = entity
+      ? (entity.date || entity.eventDate)
+      : null;
 
-    // Additional validation: Check if participant's event matches the provided eventId
-    if (eventId && participant.eventId) {
-      const participantEventId = participant.eventId._id
-        ? participant.eventId._id.toString()
-        : participant.eventId.toString();
+    console.log("DEBUG - Found participant:", participant._id, "isSport:", isSport);
 
-      if (participantEventId !== eventId) {
-        console.log("DEBUG - Participant event ID mismatch!");
-        console.log("DEBUG - Participant Event ID:", participantEventId);
-        console.log("DEBUG - Request Event ID:", eventId);
+    // Participant's entity must match request entityId when provided
+    const participantEntityId = isSport
+      ? (participant.sportId && (participant.sportId._id || participant.sportId).toString())
+      : (participant.eventId && (participant.eventId._id || participant.eventId).toString());
 
-        let participantEventName = "Unknown Event";
-        let selectedEventName = "Unknown Event";
-
-        try {
-          const partEvent = await Event.findById(participantEventId);
-          if (partEvent) participantEventName = partEvent.eventName;
-
-          const selEvent = await Event.findById(eventId);
-          if (selEvent) selectedEventName = selEvent.eventName;
-        } catch (err) {
-          console.log("DEBUG - Could not fetch event names:", err);
-        }
-
-        return res.status(400).json({
-          message: "Ticket does not belong to the selected event",
-          details: {
-            selectedEvent: {
-              id: eventId,
-              name: selectedEventName,
-            },
-            ticketEvent: {
-              id: participantEventId,
-              name: participantEventName,
-            },
-          },
-          error: "TICKET_EVENT_MISMATCH",
-        });
+    if (entityId && participantEntityId && participantEntityId !== entityId) {
+      let participantEntityName = "Unknown";
+      let selectedEntityName = "Unknown";
+      try {
+        const partEv = await Event.findById(participantEntityId);
+        const partSp = await Sport.findById(participantEntityId);
+        if (partEv) participantEntityName = partEv.eventName;
+        else if (partSp) participantEntityName = partSp.sportName;
+        const selEv = await Event.findById(entityId);
+        const selSp = await Sport.findById(entityId);
+        if (selEv) selectedEntityName = selEv.eventName;
+        else if (selSp) selectedEntityName = selSp.sportName;
+      } catch (err) {
+        console.log("DEBUG - Could not fetch entity names:", err);
       }
-    }
-
-    // Validate event date is today
-    const event = participant.eventId;
-    if (!event) {
-      return res.status(400).json({ message: "Event not found" });
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const eventDate = new Date(event.date || event.eventDate);
-    eventDate.setHours(0, 0, 0, 0);
-
-    if (eventDate.getTime() !== today.getTime()) {
-      console.log("DEBUG - Event date does not match today");
-      console.log("DEBUG - Event date:", eventDate);
-      console.log("DEBUG - Today:", today);
       return res.status(400).json({
-        message:
-          "This event is not scheduled for today. Scanning is only allowed on the event date.",
-        eventDate: event.date || event.eventDate,
-        today: new Date(),
-        eventName: event.eventName,
+        message: "Ticket does not belong to the selected event/sport",
+        details: {
+          selected: { id: entityId, name: selectedEntityName },
+          ticketEntity: { id: participantEntityId, name: participantEntityName },
+        },
+        error: "TICKET_ENTITY_MISMATCH",
       });
     }
 
-    console.log("DEBUG - Event date validated successfully");
+    if (!entity) {
+      return res
+        .status(400)
+        .json({ message: "Event/sport not found for this ticket" });
+    }
+
+    // Validate entity date is today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkDate = new Date(entityDate);
+    checkDate.setHours(0, 0, 0, 0);
+
+    if (checkDate.getTime() !== today.getTime()) {
+      return res.status(400).json({
+        message:
+          "This event/sport is not scheduled for today. Scanning is only allowed on the event date.",
+        eventDate: entityDate,
+        today: new Date(),
+        eventName: entityName,
+        isSport,
+      });
+    }
+
+    console.log("DEBUG - Date validated successfully");
 
     // Check if QR codes exist
     if (!participant.qrCodes || participant.qrCodes.length === 0) {
@@ -681,7 +672,8 @@ exports.scanTicketByQR = async (req, res) => {
               message: "Ticket already scanned",
               scannedAt: qrCode.usedAt,
               scannedBy: qrCode.scannedBy,
-              eventName: event.eventName,
+              eventName: entityName,
+              isSport,
             });
           }
         }
@@ -702,7 +694,8 @@ exports.scanTicketByQR = async (req, res) => {
       return res.status(400).json({
         message: "Ticket already scanned",
         scannedAt: participant.updatedAt,
-        eventName: event.eventName,
+        eventName: entityName,
+        isSport,
       });
     }
 
@@ -731,8 +724,8 @@ exports.scanTicketByQR = async (req, res) => {
 
     await participant.save();
 
-    // Update event stats
-    if (event) {
+    // Update event ticket stats only for events (sports have no ticketStatus)
+    if (!isSport && event && event.ticketStatus) {
       event.ticketStatus.unscannedTickets = Math.max(
         0,
         (event.ticketStatus.unscannedTickets || 0) - 1,
@@ -749,10 +742,11 @@ exports.scanTicketByQR = async (req, res) => {
         ticketNumber,
         attendeeName: attendeeInfo ? attendeeInfo.name : "N/A",
         attendeeId: attendeeInfo ? attendeeInfo.identificationNumber : "N/A",
-        eventName: event ? event.eventName : "Unknown Event",
-        eventDate: event ? event.date || event.eventDate : null,
+        eventName: entityName,
+        eventDate: entityDate,
         scannedAt: new Date(),
         participantId: participant._id,
+        isSport,
         allTicketsScanned:
           participant.scannedTickets === participant.numberOfTickets,
         remainingTickets:
@@ -773,11 +767,14 @@ exports.getEventParticipants = async (req, res) => {
         .json({ message: "Access denied. Only admins can view participants." });
     }
 
-    const { eventId } = req.query;
+    const { eventId, sportId } = req.query;
     let filter = {};
 
     if (eventId) {
       filter.eventId = eventId;
+    }
+    if (sportId) {
+      filter.sportId = sportId;
     }
 
     const participants = await Participant.find(filter)
@@ -788,6 +785,8 @@ exports.getEventParticipants = async (req, res) => {
     res.json({
       message: eventId
         ? "Event participants retrieved successfully"
+        : sportId
+        ? "Sport participants retrieved successfully"
         : "All participants retrieved successfully",
       participants: participants.map((participant) => ({
         id: participant._id,
