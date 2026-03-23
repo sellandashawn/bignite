@@ -15,14 +15,16 @@ exports.register = async (req, res) => {
       address,
       city,
       dateOfBirth,
-      userType = "user"
+      userType = "user",
     } = req.body;
 
     console.log("Registering user with email:", email);
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ message: "User already exists with this email" });
+      return res
+        .status(400)
+        .json({ message: "User already exists with this email" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -72,9 +74,8 @@ exports.register = async (req, res) => {
 
     res.status(201).json({
       message: "User registered successfully",
-      user: userResponse
+      user: userResponse,
     });
-
   } catch (err) {
     console.error("Error registering user:", err);
     res.status(500).json({ message: "Server error", error: err.message });
@@ -100,10 +101,10 @@ exports.signin = async (req, res) => {
         id: user._id,
         userId: user.userId,
         email: user.email,
-        userType: user.userType
+        userType: user.userType,
       },
       SECRET_KEY,
-      { expiresIn: "7d" }
+      { expiresIn: "1d" },
     );
 
     res.json({
@@ -120,8 +121,8 @@ exports.signin = async (req, res) => {
         address: user.address,
         city: user.city,
         dateOfBirth: user.dateOfBirth,
-        createdAt: user.createdAt
-      }
+        createdAt: user.createdAt,
+      },
     });
   } catch (err) {
     console.error("Login error:", err);
